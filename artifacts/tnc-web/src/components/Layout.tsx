@@ -2,8 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { BookOpen, Video, FileText, Home, LogOut, Shield, Menu, X, ChevronRight, Brain, Trophy, Maximize2, Minimize2, MessageCircle, Send, History, Moon, Sun, Snowflake } from "lucide-react";
 import { getUser, isAdmin, clearAdminToken } from "@/lib/auth";
-import { openExternalLink } from "@/lib/telegram";
-import { getTelegramUser } from "@/lib/telegram";
+import { getTelegramUser, isTelegramWebApp, openExternalLink, openTelegramLink } from "@/lib/telegram";
 import TncLoginPrompt from "@/components/TncLoginPrompt";
 import { useWinterEffects } from "@/components/WinterEffectsProvider";
 import { useSiteAuth } from "@/components/SiteAuthProvider";
@@ -60,16 +59,29 @@ function VisitorGreeting() {
   const { session } = useSiteAuth();
   const user = getUser();
   const telegramUser = getTelegramUser();
+  const [animeImageUrl, setAnimeImageUrl] = useState<string | null>(null);
   const metadata = session?.user.user_metadata ?? {};
   const googleName = [metadata.full_name, metadata.name, metadata.given_name].find((value) => typeof value === "string" && value.trim());
   const name = typeof googleName === "string" ? googleName : user?.name || telegramUser?.first_name || "";
-  const profileImage = [metadata.avatar_url, metadata.picture].find((value) => typeof value === "string" && value.startsWith("https://"));
+
+  useEffect(() => {
+    let active = true;
+    fetch("https://api.waifu.im/images?IncludedTags=waifu&IsNsfw=False&PageSize=1", { headers: { Accept: "application/json" } })
+      .then((response) => response.ok ? response.json() as Promise<{ items?: Array<{ url?: string }> }> : null)
+      .then((data) => {
+        const imageUrl = data?.items?.[0]?.url;
+        if (active && imageUrl?.startsWith("https://")) setAnimeImageUrl(imageUrl);
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+
   if (!name) return null;
 
   return (
     <section className="mx-auto my-5 flex max-w-6xl items-center gap-3 px-4" data-testid="visitor-greeting">
-      {typeof profileImage === "string"
-        ? <img src={profileImage} alt={`${name}'s Google profile`} referrerPolicy="no-referrer" className="h-12 w-12 rounded-full border-2 border-[hsl(var(--secondary))] object-cover" loading="lazy" />
+      {animeImageUrl
+        ? <img src={animeImageUrl} alt="Anime study companion" referrerPolicy="no-referrer" className="h-12 w-12 rounded-full border-2 border-[hsl(var(--secondary))] object-cover" loading="lazy" />
         : <div aria-hidden="true" className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-100 font-bold text-blue-800">{name.slice(0, 1).toUpperCase()}</div>}
       <div>
         <p className="text-lg font-black text-gray-900">{getGreeting()}, {name}.</p>
@@ -134,13 +146,17 @@ export default function Layout({ children }: LayoutProps) {
     setMobileMenuOpen(false);
   }
 
-  function handleJoinChannel() {
+  function handleJoinChannel(event: React.MouseEvent<HTMLAnchorElement>) {
     try {
       localStorage.setItem(CHANNEL_JOIN_CLICKED_AT_KEY, String(Date.now()));
     } catch {
       // Keep the prompt visible on the next page load if storage is unavailable.
     }
     setShowChannelPrompt(false);
+    if (isTelegramWebApp()) {
+      event.preventDefault();
+      openTelegramLink(CHANNEL_URL);
+    }
   }
 
   return (
@@ -247,6 +263,7 @@ export default function Layout({ children }: LayoutProps) {
               )}
               <a
                 href={CHANNEL_URL}
+                onClick={handleJoinChannel}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/15 text-white hover:bg-white/25 transition-colors"
@@ -390,6 +407,7 @@ export default function Layout({ children }: LayoutProps) {
               </a>
               <a
                 href={CHANNEL_URL}
+                onClick={handleJoinChannel}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-2 px-1 py-2 text-sm font-medium text-blue-600 hover:text-blue-700"

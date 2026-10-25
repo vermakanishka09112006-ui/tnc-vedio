@@ -189,6 +189,51 @@ async function requireAdmin(req: Request, res: Response): Promise<SiteIdentity |
   }
 }
 
+type TelegramNoticeResult = "sent" | "recent" | "not_configured" | "failed";
+
+async function notifyTelegramAdmins(identity: SiteIdentity, access: SiteAccessRecord): Promise<TelegramNoticeResult> {
+  const botToken = process.env.TELEGRAM_BOT_TOKEN ?? process.env.BOT_TOKEN;
+  const adminIds = [process.env.ADMIN_CHAT_ID, process.env.ADMIN_TELEGRAM_ID, process.env.TELEGRAM_ADMIN_ID]
+    .flatMap((value) => (value ?? "").split(","))
+    .map((value) => value.trim())
+    .filter((value) => /^-?\d+$/.test(value));
+  if (!botToken || adminIds.length === 0) return "not_configured";
+  if (access.admin_notified_at && Date.now() - Date.parse(access.admin_notified_at) < 15 * 60 * 1000) return "recent";
+
+  const admin = getSupabaseAdmin();
+  const now = new Date().toISOString();
+  const { data: claimed, error: claimError } = await admin.from("site_access")
+    .update({ admin_notified_at: now })
+    .eq("user_id", identity.id)
+    .is("admin_notified_at", access.admin_notified_at)
+    .select("user_id")
+    .maybeSingle();
+  if (claimError) throw claimError;
+  if (!claimed) return "recent";
+
+  const text = [
+    "A student is waiting for TNC Nursing site access approval.",
+    `Name: ${identity.name || access.display_name || "Student"}`,
+    `Email: ${identity.email}`,
+  ].join("\n");
+  const delivery = await Promise.all(adminIds.map(async (chatId) => {
+    try {
+      const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, text }),
+        signal: AbortSignal.timeout(8_000),
+      });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }));
+  if (delivery.some(Boolean)) return "sent";
+  await admin.from("site_access").update({ admin_notified_at: null }).eq("user_id", identity.id);
+  return "failed";
+}
+
 router.get("/site-access/status", async (req: Request, res: Response): Promise<void> => {
   try {
     const identity = await getSiteIdentity(req);
@@ -197,6 +242,13 @@ router.get("/site-access/status", async (req: Request, res: Response): Promise<v
       return;
     }
     const access = await effectiveAccessRecord(identity);
+    if (access.status === "pending" && !access.admin_notified_at && Date.now() - Date.parse(access.requested_at) < 5 * 60 * 1000) {
+      try {
+        await notifyTelegramAdmins(identity, access);
+      } catch {
+        // Keep access status available even if the optional Telegram notice fails.
+      }
+    }
     res.json({
       userId: access.user_id,
       email: access.email,
@@ -305,47 +357,16 @@ router.post("/site-access/notify-admin", async (req: Request, res: Response): Pr
       return;
     }
 
-    const botToken = process.env.TELEGRAM_BOT_TOKEN ?? process.env.BOT_TOKEN;
-    const adminIds = [process.env.ADMIN_CHAT_ID, process.env.ADMIN_TELEGRAM_ID, process.env.TELEGRAM_ADMIN_ID]
-      .flatMap((value) => (value ?? "").split(","))
-      .map((value) => value.trim())
-      .filter((value) => /^-?\d+$/.test(value));
-    if (!botToken || adminIds.length === 0) {
+    const result = await notifyTelegramAdmins(identity, access);
+    if (result === "not_configured") {
       res.status(503).json({ error: "Telegram admin notifications are not configured" });
       return;
     }
-
-    if (access.admin_notified_at && Date.now() - Date.parse(access.admin_notified_at) < 15 * 60 * 1000) {
+    if (result === "recent") {
       res.status(429).json({ error: "The administrator was notified recently. Please wait before notifying again." });
       return;
     }
-
-    const now = new Date().toISOString();
-    const { error: updateError } = await getSupabaseAdmin().from("site_access")
-      .update({ admin_notified_at: now })
-      .eq("user_id", identity.id);
-    if (updateError) throw updateError;
-
-    const text = [
-      "A student is waiting for TNC Nursing site access approval.",
-      `Name: ${identity.name || access.display_name || "Student"}`,
-      `Email: ${identity.email}`,
-    ].join("\n");
-    const delivery = await Promise.all(adminIds.map(async (chatId) => {
-      try {
-        const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ chat_id: chatId, text }),
-          signal: AbortSignal.timeout(8_000),
-        });
-        return response.ok;
-      } catch {
-        return false;
-      }
-    }));
-    if (!delivery.some(Boolean)) {
-      await getSupabaseAdmin().from("site_access").update({ admin_notified_at: null }).eq("user_id", identity.id);
+    if (result === "failed") {
       res.status(502).json({ error: "The Telegram notification could not be delivered" });
       return;
     }
@@ -437,7 +458,14 @@ router.post("/admin/site-access/:userId/block", async (req: Request, res: Respon
       .select("*")
       .single();
     if (error) throw error;
-    res.json({ user: data });
+    const email = await sendAccessDecisionEmail({
+      email: data.email,
+      displayName: data.display_name,
+      decision: "blocked",
+      reason: data.blocked_reason,
+      blockedUntil,
+    });
+    res.json({ user: data, emailSent: email.sent, emailReason: email.sent ? null : email.reason });
   } catch {
     res.status(500).json({ error: "Could not block this user" });
   }
@@ -448,7 +476,7 @@ router.post("/admin/site-access/:userId/unblock", async (req: Request, res: Resp
   try {
     const admin = getSupabaseAdmin();
     const { data: current, error: readError } = await admin.from("site_access")
-      .select("status,status_before_block")
+      .select("status,status_before_block,blocked_reason,email,display_name")
       .eq("user_id", req.params.userId)
       .single();
     if (readError) throw readError;
@@ -462,7 +490,14 @@ router.post("/admin/site-access/:userId/unblock", async (req: Request, res: Resp
       .select("*")
       .single();
     if (error) throw error;
-    res.json({ user: data });
+    const email = await sendAccessDecisionEmail({
+      email: data.email,
+      displayName: data.display_name,
+      decision: "unblocked",
+      reason: current.blocked_reason,
+      restoredStatus: data.status,
+    });
+    res.json({ user: data, emailSent: email.sent, emailReason: email.sent ? null : email.reason });
   } catch {
     res.status(500).json({ error: "Could not unblock this user" });
   }

@@ -3,12 +3,15 @@ import { useGetSession, useGetPromoStatus, useGetUserPurchases, getGetUserPurcha
 import { ArrowLeft, Lock, ExternalLink, FileText, Loader2 } from "lucide-react";
 import Layout from "@/components/Layout";
 import { getUser } from "@/lib/auth";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { customFetch } from "@/lib/api-client/custom-fetch";
 
 export default function PdfViewerPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const user = getUser();
   const [pdfLoading, setPdfLoading] = useState(true);
+  const [pdfObjectUrl, setPdfObjectUrl] = useState<string | null>(null);
+  const [pdfError, setPdfError] = useState(false);
 
   // Use single-session endpoint instead of fetching all sessions
   const { data: session, isLoading } = useGetSession(sessionId ?? "");
@@ -53,6 +56,38 @@ export default function PdfViewerPage() {
     ? (session.pdfUrl.startsWith("http") ? session.pdfUrl : `${base}${session.pdfUrl}`)
     : null;
 
+  useEffect(() => {
+    if (!pdfUrl || !isUnlocked) {
+      setPdfObjectUrl(null);
+      setPdfLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    setPdfLoading(true);
+    setPdfError(false);
+    setPdfObjectUrl(null);
+    void customFetch<Blob>(pdfUrl, { responseType: "blob" }).then((file) => {
+      objectUrl = URL.createObjectURL(file);
+      if (cancelled) {
+        URL.revokeObjectURL(objectUrl);
+        return;
+      }
+      setPdfObjectUrl(objectUrl);
+      setPdfLoading(false);
+    }).catch(() => {
+      if (cancelled) return;
+      setPdfError(true);
+      setPdfLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [isUnlocked, pdfUrl]);
+
   return (
     <Layout>
       <div className="max-w-5xl mx-auto px-4 py-6">
@@ -64,9 +99,9 @@ export default function PdfViewerPage() {
           >
             <ArrowLeft size={14} /> Back to Course
           </Link>
-          {pdfUrl && isUnlocked && (
+          {pdfObjectUrl && isUnlocked && (
             <a
-              href={pdfUrl}
+              href={pdfObjectUrl}
               target="_blank"
               rel="noreferrer"
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors"
@@ -103,6 +138,12 @@ export default function PdfViewerPage() {
               <p className="text-gray-500 text-sm">This session doesn't have a PDF attached.</p>
               <p className="text-xs text-gray-400 mt-1">It may be available only in the mobile app.</p>
             </div>
+          ) : pdfError ? (
+            <div className="p-12 text-center">
+              <FileText size={40} className="mx-auto text-red-300 mb-3" />
+              <p className="text-gray-700 text-sm font-semibold">PDF could not be loaded</p>
+              <p className="mt-1 text-xs text-gray-500">Check your connection and try opening this note again.</p>
+            </div>
           ) : (
             <div className="relative" style={{ height: "80vh" }}>
               {/* Loading overlay */}
@@ -114,7 +155,7 @@ export default function PdfViewerPage() {
                 </div>
               )}
               <iframe
-                src={pdfUrl}
+                src={pdfObjectUrl ?? undefined}
                 className="w-full h-full border-0"
                 title={session.title}
                 data-testid="pdf-iframe"

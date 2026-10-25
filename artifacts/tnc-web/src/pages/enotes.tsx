@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { Link } from "wouter";
 import {
   useGetCourses,
@@ -9,8 +9,8 @@ import {
 import { customFetch } from "@/lib/api-client";
 import { useQuery } from "@tanstack/react-query";
 import {
-  FileText, Lock, Search, BookOpen, ChevronRight,
-  ChevronDown, ArrowRight, Loader2, ExternalLink, BookMarked,
+  FileText, Lock, Search, BookOpen, ChevronRight, ChevronDown,
+  ArrowLeft, ArrowRight, Loader2, BookMarked,
 } from "lucide-react";
 import Layout from "@/components/Layout";
 import { getUser } from "@/lib/auth";
@@ -26,6 +26,14 @@ interface NoteSession {
   serialNo: string;
   courseId: string | null;
   contentType: string;
+  subjectId: string;
+}
+
+interface NoteSubject {
+  rowId: string;
+  name: string;
+  pdfCount: number;
+  totalCount: number;
 }
 
 // ─── Hook: fetch PDFs for one course on demand ────────────────────────────────
@@ -33,8 +41,17 @@ function useCourseNotes(courseId: string | null, enabled: boolean) {
   return useQuery<NoteSession[]>({
     queryKey: ["notes", courseId],
     queryFn: () =>
-      customFetch<NoteSession[]>(`/api/notes?courseId=${courseId}`),
+      customFetch<NoteSession[]>(`/api/notes?courseId=${encodeURIComponent(courseId ?? "")}`),
     enabled: !!courseId && enabled,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+function useCourseSubjects(courseId: string | null, enabled: boolean) {
+  return useQuery<NoteSubject[]>({
+    queryKey: ["subjects", courseId],
+    queryFn: () => customFetch<NoteSubject[]>(`/api/subjects?courseId=${encodeURIComponent(courseId ?? "")}`),
+    enabled: Boolean(courseId && enabled),
     staleTime: 5 * 60 * 1000,
   });
 }
@@ -52,12 +69,20 @@ function useRecentNotes() {
 function CourseNoteRow({
   course,
   isUnlocked,
+  search,
 }: {
   course: { rowId: string; name: string; description?: string; imageUrl?: string | null };
   isUnlocked: boolean;
+  search: string;
 }) {
   const [open, setOpen] = useState(false);
-  const { data: notes, isLoading } = useCourseNotes(course.rowId, open);
+  const [selectedSubjectId, setSelectedSubjectId] = useState<string | null>(null);
+  const { data: subjects, isLoading: subjectsLoading } = useCourseSubjects(course.rowId, open);
+  const { data: notes, isLoading: notesLoading } = useCourseNotes(course.rowId, open && Boolean(selectedSubjectId));
+  const normalizedSearch = search.trim().toLowerCase();
+  const visibleSubjects = (subjects ?? []).filter((subject) => subject.name.toLowerCase().includes(normalizedSearch));
+  const subjectNotes = (notes ?? []).filter((note) => note.subjectId === selectedSubjectId && note.title.toLowerCase().includes(normalizedSearch));
+  const isLoading = subjectsLoading || (Boolean(selectedSubjectId) && notesLoading);
 
   return (
     <motion.div
@@ -133,21 +158,25 @@ function CourseNoteRow({
                 <Loader2 size={18} className="animate-spin" />
                 <span className="text-sm">Loading notes…</span>
               </div>
-            ) : !notes || notes.length === 0 ? (
+            ) : selectedSubjectId ? (
+              <>
+                <button type="button" onClick={() => setSelectedSubjectId(null)} className="inline-flex items-center gap-2 px-4 py-3 text-xs font-semibold text-blue-700 hover:text-blue-900"><ArrowLeft size={14} /> All subjects</button>
+                {subjectNotes.length === 0 ? (
+                  <div className="py-8 text-center text-gray-400 text-sm"><FileText size={32} className="mx-auto text-gray-200 mb-2" />No PDF notes found for this subject</div>
+                ) : (
+                  <div className="divide-y divide-gray-50">
+                    {subjectNotes.map((note, idx) => <NoteItem key={note.rowId} note={note} index={idx} isUnlocked={isUnlocked} />)}
+                  </div>
+                )}
+              </>
+            ) : visibleSubjects.length === 0 ? (
               <div className="py-8 text-center text-gray-400 text-sm">
-                <FileText size={32} className="mx-auto text-gray-200 mb-2" />
-                No PDF notes found for this course
+                <BookOpen size={32} className="mx-auto text-gray-200 mb-2" />
+                No subjects found for this course
               </div>
             ) : (
               <div className="divide-y divide-gray-50">
-                {notes.map((note, idx) => (
-                  <NoteItem
-                    key={note.rowId}
-                    note={note}
-                    index={idx}
-                    isUnlocked={isUnlocked}
-                  />
-                ))}
+                {visibleSubjects.map((subject) => <button key={subject.rowId} type="button" onClick={() => setSelectedSubjectId(subject.rowId)} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-red-50/50"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-500"><BookOpen size={15} /></span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-gray-800">{subject.name}</span><span className="text-[11px] text-gray-400">{subject.pdfCount} PDFs · {subject.totalCount} lessons</span></span><ChevronRight size={16} className="shrink-0 text-gray-300" /></button>)}
               </div>
             )}
           </motion.div>
@@ -293,7 +322,6 @@ function RecentNotesList({
 export default function EnotesPage() {
   const user = getUser();
   const [search, setSearch] = useState("");
-  const [tab, setTab] = useState<"courses" | "recent">("courses");
 
   const { data: courses, isLoading } = useGetCourses();
   const { data: promo } = useGetPromoStatus();
@@ -306,11 +334,8 @@ export default function EnotesPage() {
     (Array.isArray(purchases) ? purchases : []).map((p) => p.courseId),
   );
 
-  const isUnlocked = useCallback(
-    (courseRowId: string | null) =>
-      !!(promo?.enabled || (courseRowId && purchasedIds.has(courseRowId))),
-    [promo, purchasedIds],
-  );
+  const isUnlocked = (courseRowId: string | null) =>
+    Boolean(promo?.enabled || (courseRowId && purchasedIds.has(courseRowId)));
 
   const filtered = courseList.filter((c) =>
     c.name.toLowerCase().includes(search.toLowerCase()),
@@ -335,34 +360,16 @@ export default function EnotesPage() {
         </div>
       </div>
 
-      {/* Sticky bar — search + tabs */}
+      {/* Sticky course search */}
       <div className="bg-white border-b sticky top-16 z-30 shadow-sm">
-        <div className="max-w-5xl mx-auto px-4 py-3 flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-          <div className="flex gap-1">
-            {[
-              { key: "courses", label: "By Course" },
-              { key: "recent", label: "Recent PDFs" },
-            ].map((t) => (
-              <button
-                key={t.key}
-                onClick={() => setTab(t.key as typeof tab)}
-                className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                  tab === t.key
-                    ? "bg-red-600 text-white"
-                    : "text-gray-500 hover:bg-gray-100"
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
+        <div className="max-w-5xl mx-auto px-4 py-3">
           <div className="relative w-full sm:max-w-xs">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder={tab === "courses" ? "Search courses…" : "Search notes…"}
+              placeholder="Search courses, subjects, or PDF notes…"
               className="w-full pl-9 pr-4 py-2 text-sm border rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400"
               data-testid="input-search-notes"
             />
@@ -372,42 +379,30 @@ export default function EnotesPage() {
 
       {/* Content */}
       <div className="max-w-5xl mx-auto px-4 py-8">
-        {tab === "courses" ? (
-          <>
-            <p className="text-xs text-gray-400 mb-5 font-medium uppercase tracking-wide">
-              Click a course to browse its PDF notes
-            </p>
+        <p className="text-xs text-gray-400 mb-5 font-medium uppercase tracking-wide">
+          Choose a course, then a subject, to view its PDF notes
+        </p>
 
-            {isLoading ? (
-              <div className="space-y-3">
-                {[1, 2, 3, 4, 5].map((i) => (
-                  <div key={i} className="h-20 skeleton rounded-2xl" />
-                ))}
-              </div>
-            ) : filtered.length === 0 ? (
-              <div className="text-center py-20 text-gray-500">
-                <FileText size={48} className="mx-auto text-gray-200 mb-3" />
-                <p className="font-medium">No courses found</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {filtered.map((course) => (
-                  <CourseNoteRow
-                    key={course.rowId}
-                    course={course}
-                    isUnlocked={isUnlocked(course.rowId)}
-                  />
-                ))}
-              </div>
-            )}
-          </>
+        {isLoading ? (
+          <div className="space-y-3">
+            {[0, 1, 2, 3, 4].map((item) => <div key={item} className="h-20 skeleton rounded-2xl" />)}
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="text-center py-20 text-gray-500">
+            <FileText size={48} className="mx-auto text-gray-200 mb-3" />
+            <p className="font-medium">No courses found</p>
+          </div>
         ) : (
-          <>
-            <p className="text-xs text-gray-400 mb-5 font-medium uppercase tracking-wide">
-              Latest PDF notes across all courses
-            </p>
-            <RecentNotesList isUnlocked={isUnlocked} search={search} />
-          </>
+          <div className="space-y-3">
+            {filtered.map((course) => (
+              <CourseNoteRow
+                key={course.rowId}
+                course={course}
+                isUnlocked={isUnlocked(course.rowId)}
+                search={search}
+              />
+            ))}
+          </div>
         )}
 
         {/* CTA */}

@@ -19,6 +19,19 @@ interface SiteUserActivity {
   updated_at: string | null;
 }
 
+interface EmailOutcome {
+  emailSent: boolean;
+  emailReason: string | null;
+}
+
+function emailNotice(action: string, outcome: EmailOutcome): string {
+  if (outcome.emailSent) return `${action} saved and email sent to the user.`;
+  if (outcome.emailReason === "not_configured") {
+    return `${action} saved, but email is not configured. Set RESEND_API_KEY and ACCESS_EMAIL_FROM on the API service.`;
+  }
+  return `${action} saved, but the email provider could not deliver the notification.`;
+}
+
 function objectRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
@@ -114,7 +127,7 @@ export default function SiteAdminPage() {
     setNotice("");
     try {
       if (action === "approve" || action === "deny") {
-        const decision = await customFetch<{ emailSent: boolean; emailReason: string | null }>(`/api/admin/site-access/${encodeURIComponent(userId)}/decision`, {
+        const decision = await customFetch<EmailOutcome>(`/api/admin/site-access/${encodeURIComponent(userId)}/decision`, {
           method: "POST",
           body: JSON.stringify({
             status: action === "approve" ? "approved" : "denied",
@@ -122,19 +135,17 @@ export default function SiteAdminPage() {
             ...(action === "approve" ? { durationHours: permanentApproval ? null : Number(approvalDurationHours) } : {}),
           }),
         });
-        setNotice(decision.emailSent
-          ? "Decision saved and email sent to the user."
-          : decision.emailReason === "not_configured"
-            ? "Decision saved, but email is not configured. Set RESEND_API_KEY and ACCESS_EMAIL_FROM on the API service."
-            : "Decision saved, but the email provider could not deliver the notification.");
+        setNotice(emailNotice(action === "approve" ? "Approval" : "Denial", decision));
       } else if (action === "block") {
         if (!reason.trim()) throw new Error("Add a reason before blocking this user.");
-        await customFetch(`/api/admin/site-access/${encodeURIComponent(userId)}/block`, {
+        const outcome = await customFetch<EmailOutcome>(`/api/admin/site-access/${encodeURIComponent(userId)}/block`, {
           method: "POST",
           body: JSON.stringify({ reason, durationHours: permanent ? null : Number(durationHours) }),
         });
+        setNotice(emailNotice("Ban", outcome));
       } else {
-        await customFetch(`/api/admin/site-access/${encodeURIComponent(userId)}/unblock`, { method: "POST" });
+        const outcome = await customFetch<EmailOutcome>(`/api/admin/site-access/${encodeURIComponent(userId)}/unblock`, { method: "POST" });
+        setNotice(emailNotice("Unban", outcome));
       }
       setReason("");
       setSelectedId(null);

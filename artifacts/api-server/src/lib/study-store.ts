@@ -66,7 +66,7 @@ export async function getLeaderboard(limit = 20): Promise<StudySessionSummary[]>
       avatar_url: string | null;
       seconds: number;
       sessions: number;
-    }>>(`study_leaderboard?select=participant_id,first_name,username,seconds,sessions&order=seconds.desc&limit=${maxRows}`);
+    }>>(`study_leaderboard?select=participant_id,first_name,username,avatar_url,seconds,sessions&order=seconds.desc&limit=${maxRows}`);
     return rows.map((row) => ({
       telegramId: String(row.participant_id),
       firstName: row.first_name,

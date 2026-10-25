@@ -10,6 +10,7 @@ import {
 } from "./user-store";
 import { getRandomSfwImage } from "./waifu";
 import { isAdmin } from "./admin";
+import { handleSiteAccessCommand } from "./site-access-bot";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? process.env.BOT_TOKEN;
 const APP_URL = process.env.PUBLIC_APP_URL ?? process.env.APP_URL ?? process.env.RENDER_URL ?? "https://courses.tncnursing.site";
@@ -100,6 +101,7 @@ export function initBot(): Telegraf | null {
     { command: "start", description: "Open TNC Nursing Classes" },
     { command: "help", description: "Show available commands" },
     { command: "leaderboard", description: "View study leaderboard" },
+    { command: "access", description: "Manage website access requests (admin)" },
   ]).catch((err) => logger.warn({ err }, "Failed to register Telegram commands"));
 
   const appUrl = APP_URL;
@@ -144,6 +146,8 @@ export function initBot(): Telegraf | null {
         "🧾 /user <telegram_id> - View one user\n" +
         "🚫 /ban <telegram_id> [reason] - Ban a user\n" +
         "✅ /unban <telegram_id> - Unban a user\n" +
+        "🔐 /access pending|approved|denied|blocked|all - View site access requests\n" +
+        "🔐 /access approve|deny|block|unblock <email> ... - Manage site access\n" +
         "⛔ /banned - List banned users\n" +
         "🏆 /leaderboard - View study leaderboard\n" +
         "📣 /broadcast - Send text/media to all users\n" +
@@ -161,12 +165,21 @@ export function initBot(): Telegraf | null {
   tgBot.help(async (ctx) => {
     const admin = isAdmin(ctx.from?.id);
     const adminCmds = admin
-      ? "\n\nAdmin Commands:\n/admin, /stats, /users, /user <id>, /ban <id> [reason], /unban <id>, /banned, /leaderboard, /broadcast, /comeback, /cancel"
+      ? "\n\nAdmin Commands:\n/admin, /stats, /users, /user <id>, /ban <id> [reason], /unban <id>, /banned, /leaderboard, /access, /broadcast, /comeback, /cancel"
       : "";
     await ctx.reply(
       `TNC Nursing Classes Bot\n\n/start - Open the app${adminCmds}`,
     );
   });
+
+    tgBot.command("access", async (ctx) => {
+      try {
+        await handleSiteAccessCommand(ctx);
+      } catch (err) {
+        logger.error({ err, adminId: ctx.from?.id }, "Site access bot command failed");
+        await ctx.reply("Could not manage site access. Check the database connection and try again.");
+      }
+    });
 
   // /comeback — Send message to all users (bot back online)
   tgBot.command("comeback", async (ctx) => {
