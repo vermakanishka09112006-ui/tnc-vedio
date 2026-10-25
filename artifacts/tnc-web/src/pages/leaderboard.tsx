@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Trophy, Medal, Clock3, RefreshCw } from "lucide-react";
+import { Trophy, Medal, Clock3, RefreshCw, ShieldCheck } from "lucide-react";
 import Layout from "@/components/Layout";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
@@ -10,6 +10,7 @@ interface LeaderboardRow {
   firstName: string;
   username: string | null;
   avatarUrl?: string | null;
+  adminRole?: "admin" | "super_admin" | null;
   seconds: number;
   sessions: number;
 }
@@ -40,7 +41,7 @@ export default function LeaderboardPage() {
     const loadLeaderboard = async () => {
       setLoading(true);
       try {
-        const response = await fetch(`${BASE}/api/bot/study/leaderboard?limit=100`, { cache: "no-store" });
+        const response = await fetch(`${BASE}/api/bot/study/leaderboard?limit=100&googleOnly=true`, { cache: "no-store" });
         if (!response.ok) throw new Error("Failed to load leaderboard");
         const data: unknown = await response.json();
         if (!Array.isArray(data)) throw new Error("Invalid leaderboard response");
@@ -111,16 +112,23 @@ export default function LeaderboardPage() {
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             {rows.map((row, index) => {
               const isFeaturedVisitor = row.telegramId === FEATURED_VISITOR_ROW_ID;
+              const isSuperAdmin = row.adminRole === "super_admin";
+              const isAdmin = row.adminRole === "admin";
               return (
-              <div key={row.telegramId} className={`flex items-center gap-3 px-5 py-4 border-b last:border-0 border-gray-50 ${isFeaturedVisitor ? "bg-amber-50" : ""}`}>
+              <div key={row.telegramId} className={`flex items-center gap-3 border-b border-gray-50 px-5 py-4 last:border-0 ${isSuperAdmin ? "border-l-4 border-l-amber-500 bg-amber-50/80" : isAdmin ? "border-l-4 border-l-blue-500 bg-blue-50/60" : isFeaturedVisitor ? "bg-amber-50" : ""}`}>
                 <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-black ${
                   index === 0 ? "bg-yellow-100 text-yellow-700" : index === 1 ? "bg-gray-100 text-gray-600" : index === 2 ? "bg-orange-100 text-orange-700" : "bg-blue-50 text-blue-600"
                 }`}>
                   {index < 3 ? <Medal size={17} /> : index + 1}
                 </div>
-                {row.avatarUrl && <img src={row.avatarUrl} alt="" referrerPolicy="no-referrer" className="h-10 w-10 shrink-0 rounded-full object-cover" loading="lazy" />}
+                <div className={`flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white ${isSuperAdmin ? "ring-2 ring-amber-500 ring-offset-2" : isAdmin ? "ring-2 ring-blue-500 ring-offset-2" : "border border-gray-200"}`}>
+                  {row.avatarUrl ? <img src={row.avatarUrl} alt="" referrerPolicy="no-referrer" className="h-full w-full object-cover" loading="lazy" /> : <span className="font-bold text-gray-500">{row.firstName.slice(0, 1).toUpperCase() || "S"}</span>}
+                </div>
                 <div className="flex-1 min-w-0">
-                  <p className={`font-semibold truncate ${isFeaturedVisitor ? "text-amber-700" : "text-gray-900"}`}>{row.firstName || "Student"}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className={`font-semibold truncate ${isFeaturedVisitor ? "text-amber-700" : "text-gray-900"}`}>{row.firstName || "Student"}</p>
+                    {row.adminRole && <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${isSuperAdmin ? "bg-amber-200 text-amber-950" : "bg-blue-100 text-blue-900"}`}><ShieldCheck size={11} />{isSuperAdmin ? "Super Admin" : "Admin"}</span>}
+                  </div>
                   {row.username && <p className="text-xs text-gray-400">@{row.username}</p>}
                 </div>
                 <div className="text-right">

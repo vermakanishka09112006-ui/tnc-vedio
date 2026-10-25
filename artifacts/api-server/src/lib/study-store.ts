@@ -11,6 +11,7 @@ export interface StudySessionSummary {
   firstName: string;
   username: string | null;
   avatarUrl: string | null;
+  adminRole: "admin" | "super_admin" | null;
   seconds: number;
   sessions: number;
 }
@@ -56,26 +57,50 @@ export async function recordWebsiteStudyHeartbeat(input: WebsiteStudyHeartbeat):
   });
 }
 
-export async function getLeaderboard(limit = 20): Promise<StudySessionSummary[]> {
+export async function getLeaderboard(limit = 20, options: { googleOnly?: boolean } = {}): Promise<StudySessionSummary[]> {
   const maxRows = Math.min(limit, 100);
+  const queryLimit = options.googleOnly ? 1000 : maxRows;
   try {
-    const rows = await supabaseRequest<Array<{
+    const queriedRows = await supabaseRequest<Array<{
       participant_id: number | string;
       first_name: string;
       username: string | null;
       avatar_url: string | null;
       seconds: number;
       sessions: number;
-    }>>(`study_leaderboard?select=participant_id,first_name,username,avatar_url,seconds,sessions&order=seconds.desc&limit=${maxRows}`);
+    }>>(`study_leaderboard?select=participant_id,first_name,username,avatar_url,seconds,sessions&order=seconds.desc&limit=${queryLimit}`);
+    const rows = options.googleOnly
+      ? queriedRows.filter((row) => String(row.participant_id).startsWith("web_google_")).slice(0, maxRows)
+      : queriedRows;
+    let profileById = new Map<string, string>();
+    let adminIds = new Set<string>();
+    try {
+      const [profiles, admins] = await Promise.all([
+        supabaseRequest<Array<{ user_id: string; email: string }>>("site_access?select=user_id,email&limit=1000"),
+        supabaseRequest<Array<{ user_id: string }>>("site_admins?select=user_id&limit=1000"),
+      ]);
+      profileById = new Map(profiles.map((profile) => [profile.user_id, profile.email.toLowerCase()]));
+      adminIds = new Set(admins.map((admin) => admin.user_id));
+    } catch {
+      // Leaderboard study data remains available if the optional role lookup fails.
+    }
     return rows.map((row) => ({
       telegramId: String(row.participant_id),
       firstName: row.first_name,
       username: row.username,
       avatarUrl: row.avatar_url,
+      adminRole: (() => {
+        const participantId = String(row.participant_id);
+        if (!participantId.startsWith("web_google_")) return null;
+        const userId = participantId.slice("web_google_".length);
+        const email = profileById.get(userId);
+        return email === "shashanksv2009@gmail.com" ? "super_admin" : adminIds.has(userId) ? "admin" : null;
+      })(),
       seconds: Number(row.seconds),
       sessions: Number(row.sessions),
     }));
   } catch {
+    if (options.googleOnly) return [];
     const [legacyRows, sessionRows] = await Promise.all([
       supabaseRequest<Array<{
         telegram_id: number | string;
@@ -95,6 +120,7 @@ export async function getLeaderboard(limit = 20): Promise<StudySessionSummary[]>
       firstName: row.first_name,
       username: row.username,
       avatarUrl: null,
+      adminRole: null,
       seconds: Number(row.seconds),
       sessions: sessionCounts.get(String(row.telegram_id)) ?? 0,
     }));

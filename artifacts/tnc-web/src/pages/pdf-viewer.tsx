@@ -27,32 +27,7 @@ export default function PdfViewerPage() {
   const isUnlocked = !session?.isPaid || isCourseUnlocked;
 
   const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
-
-  if (isLoading) {
-    return (
-      <Layout>
-        <div className="max-w-4xl mx-auto px-4 py-8">
-          <div className="h-8 skeleton rounded w-1/3 mb-4" />
-          <div className="h-[70vh] skeleton rounded-2xl" />
-        </div>
-      </Layout>
-    );
-  }
-
-  if (!session) {
-    return (
-      <Layout>
-        <div className="text-center py-20">
-          <FileText size={48} className="mx-auto text-gray-200 mb-3" />
-          <p className="text-gray-500 font-medium">PDF not found</p>
-          <Link href="/enotes" className="text-blue-600 text-sm mt-2 inline-block">Back to E-Notes</Link>
-        </div>
-      </Layout>
-    );
-  }
-
-  // Build full proxied PDF URL
-  const pdfUrl = session.pdfUrl
+  const pdfUrl = session?.pdfUrl
     ? (session.pdfUrl.startsWith("http") ? session.pdfUrl : `${base}${session.pdfUrl}`)
     : null;
 
@@ -87,6 +62,29 @@ export default function PdfViewerPage() {
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [isUnlocked, pdfUrl]);
+
+  if (isLoading) {
+    return (
+      <Layout>
+        <div className="max-w-4xl mx-auto px-4 py-8">
+          <div className="h-8 skeleton rounded w-1/3 mb-4" />
+          <div className="h-[70vh] skeleton rounded-2xl" />
+        </div>
+      </Layout>
+    );
+  }
+
+  if (!session) {
+    return (
+      <Layout>
+        <div className="text-center py-20">
+          <FileText size={48} className="mx-auto text-gray-200 mb-3" />
+          <p className="text-gray-500 font-medium">PDF not found</p>
+          <Link href="/enotes" className="text-blue-600 text-sm mt-2 inline-block">Back to E-Notes</Link>
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout>

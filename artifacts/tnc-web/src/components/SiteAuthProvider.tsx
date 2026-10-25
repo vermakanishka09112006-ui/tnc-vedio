@@ -8,6 +8,7 @@ export interface SiteAccessStatus {
   email: string;
   displayName: string;
   status: "pending" | "approved" | "denied" | "blocked";
+  adminRole: "admin" | "super_admin" | null;
   requestedAt: string;
   approvedUntil: string | null;
   denialReason: string | null;
@@ -89,14 +90,32 @@ export function SiteAuthProvider({ children }: { children: ReactNode }) {
           body: JSON.stringify({ watchHistory, studyData, favorites: read("tnc_favorites") }),
         }).catch(() => undefined);
       };
+      const hydrateAndSyncActivity = async (targetSession: Session) => {
+        try {
+          const saved = await customFetch<{ favorites?: Record<string, unknown> }>("/api/site-activity", {
+            headers: { Authorization: `Bearer ${targetSession.access_token}` },
+          });
+          if (currentSession?.user.id !== targetSession.user.id) return;
+          const localFavorites = read("tnc_favorites");
+          const remoteFavorites = saved.favorites ?? {};
+          const mergeList = (key: "courses" | "quizzes") => [...new Set([
+            ...(Array.isArray(remoteFavorites[key]) ? remoteFavorites[key] as string[] : []),
+            ...(Array.isArray(localFavorites[key]) ? localFavorites[key] as string[] : []),
+          ].filter((value): value is string => typeof value === "string"))];
+          localStorage.setItem("tnc_favorites", JSON.stringify({ courses: mergeList("courses"), quizzes: mergeList("quizzes") }));
+          window.dispatchEvent(new Event("tnc-site-activity-updated"));
+        } catch {
+          if (currentSession?.user.id === targetSession.user.id) syncLocalActivity();
+        }
+      };
       window.addEventListener("tnc-site-activity-updated", syncLocalActivity);
       removeActivityListener = () => window.removeEventListener("tnc-site-activity-updated", syncLocalActivity);
-      syncLocalActivity();
+      if (data.session) void hydrateAndSyncActivity(data.session);
       const { data: authListener } = client.auth.onAuthStateChange((_event, nextSession) => {
         currentSession = nextSession;
         setSession(nextSession);
         void loadAccess(nextSession);
-        if (nextSession) syncLocalActivity();
+        if (nextSession) void hydrateAndSyncActivity(nextSession);
       });
       unsubscribe = () => authListener.subscription.unsubscribe();
     });

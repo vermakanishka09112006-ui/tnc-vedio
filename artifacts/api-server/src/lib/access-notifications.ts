@@ -1,4 +1,4 @@
-export type AccessDecision = "approved" | "denied" | "blocked" | "unblocked";
+export type AccessDecision = "approved" | "denied" | "unapproved" | "blocked" | "unblocked";
 
 export interface AccessDecisionEmail {
   email: string;
@@ -31,17 +31,20 @@ export async function sendAccessDecisionEmail(input: AccessDecisionEmail): Promi
 
   const approved = input.decision === "approved";
   const denied = input.decision === "denied";
+  const unapproved = input.decision === "unapproved";
   const blocked = input.decision === "blocked";
   const name = input.displayName.trim() || "there";
   const subject = {
     approved: "Your TNC Nursing access is approved",
     denied: "Update on your TNC Nursing access request",
+    unapproved: "Your TNC Nursing approval has changed",
     blocked: "Your TNC Nursing access is temporarily restricted",
     unblocked: "Your TNC Nursing account restriction was lifted",
   }[input.decision];
   const title = {
     approved: "Your access is approved",
     denied: "Your access request was denied",
+    unapproved: "Your access approval was removed",
     blocked: "Your account is blocked",
     unblocked: "Your account block was removed",
   }[input.decision];
@@ -55,11 +58,13 @@ export async function sendAccessDecisionEmail(input: AccessDecisionEmail): Promi
     ? `You can now sign in to TNC Nursing and access learning content. ${approvalDuration}`
     : denied
       ? "Your request to access learning content was denied."
-      : blocked
-        ? `You can no longer access learning content. ${blockDuration}`
-        : `The block on your account has been removed. Your access status is ${input.restoredStatus ?? "restored"}.`;
+      : unapproved
+        ? "Your approval has been removed, and your account is pending a new access decision. Learning content is unavailable until you are approved again."
+        : blocked
+          ? `You can no longer access learning content. ${blockDuration}`
+          : `The block on your account has been removed. Your access status is ${input.restoredStatus ?? "restored"}.`;
   const reason = input.reason?.trim();
-  const detail = reason && (denied || blocked || input.decision === "unblocked")
+  const detail = reason && (denied || unapproved || blocked || input.decision === "unblocked")
     ? `<p><strong>${input.decision === "unblocked" ? "Previous block reason" : "Reason"}:</strong> ${escapeHtml(reason)}</p>`
     : "";
   const action = approved || input.decision === "unblocked"
@@ -82,7 +87,7 @@ export async function sendAccessDecisionEmail(input: AccessDecisionEmail): Promi
     message,
     approved ? approvalDuration : "",
     blocked ? blockDuration : "",
-    reason && (denied || blocked || input.decision === "unblocked") ? `${input.decision === "unblocked" ? "Previous block reason" : "Reason"}: ${reason}` : "",
+    reason && (denied || unapproved || blocked || input.decision === "unblocked") ? `${input.decision === "unblocked" ? "Previous block reason" : "Reason"}: ${reason}` : "",
     approved || input.decision === "unblocked" ? "Open TNC Nursing: https://courses.tncnursing.site/videos" : "If you think this was a mistake, message https://t.me/Tncnursingbot",
   ].filter(Boolean).join("\n");
 

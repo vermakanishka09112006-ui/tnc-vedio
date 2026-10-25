@@ -26,7 +26,14 @@ export default function CoursesPage() {
   const [favIds, setFavIds] = useState<string[]>([]);
 
   useEffect(() => {
-    setFavIds(getFavorites("courses"));
+    const syncFavorites = () => setFavIds(getFavorites("courses"));
+    syncFavorites();
+    window.addEventListener("tnc-site-activity-updated", syncFavorites);
+    window.addEventListener("storage", syncFavorites);
+    return () => {
+      window.removeEventListener("tnc-site-activity-updated", syncFavorites);
+      window.removeEventListener("storage", syncFavorites);
+    };
   }, []);
 
   const { data: courses, isLoading } = useGetCourses();

@@ -4,6 +4,7 @@ import { sendAccessDecisionEmail } from "../lib/access-notifications";
 
 const router = Router();
 const ADMIN_EMAIL = "shashanksv2009@gmail.com";
+type SiteAdminRole = "admin" | "super_admin" | null;
 
 router.get("/site-auth/config", (_req: Request, res: Response): void => {
   const supabaseUrl = process.env.SUPABASE_URL?.replace(/\/+$/, "");
@@ -106,8 +107,18 @@ async function ensureAccessRecord(identity: SiteIdentity): Promise<SiteAccessRec
   return data as SiteAccessRecord;
 }
 
+async function getSiteAdminRole(identity: SiteIdentity): Promise<SiteAdminRole> {
+  if (identity.email === ADMIN_EMAIL) return "super_admin";
+  const { data, error } = await getSupabaseAdmin().from("site_admins")
+    .select("role")
+    .eq("user_id", identity.id)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.role === "admin" ? "admin" : null;
+}
+
 async function effectiveAccessRecord(identity: SiteIdentity): Promise<SiteAccessRecord> {
-  if (identity.email === ADMIN_EMAIL) {
+  if (await getSiteAdminRole(identity)) {
     return {
       user_id: identity.id,
       email: identity.email,
@@ -175,10 +186,11 @@ export async function requireApprovedSiteUser(req: Request, res: Response, next:
   }
 }
 
-async function requireAdmin(req: Request, res: Response): Promise<SiteIdentity | null> {
+async function requireAdmin(req: Request, res: Response, minimumRole: "admin" | "super_admin" = "admin"): Promise<SiteIdentity | null> {
   try {
     const identity = await getSiteIdentity(req);
-    if (!identity || identity.email !== ADMIN_EMAIL) {
+    const role = identity ? await getSiteAdminRole(identity) : null;
+    if (!identity || !role || (minimumRole === "super_admin" && role !== "super_admin")) {
       res.status(403).json({ error: "Admin access is restricted" });
       return null;
     }
@@ -242,6 +254,7 @@ router.get("/site-access/status", async (req: Request, res: Response): Promise<v
       return;
     }
     const access = await effectiveAccessRecord(identity);
+    const adminRole = await getSiteAdminRole(identity);
     if (access.status === "pending" && !access.admin_notified_at && Date.now() - Date.parse(access.requested_at) < 5 * 60 * 1000) {
       try {
         await notifyTelegramAdmins(identity, access);
@@ -254,15 +267,117 @@ router.get("/site-access/status", async (req: Request, res: Response): Promise<v
       email: access.email,
       displayName: access.display_name,
       status: access.status,
+      adminRole,
       requestedAt: access.requested_at,
       approvedUntil: access.approved_until,
       denialReason: access.denial_reason,
       blockedUntil: access.blocked_until,
       blockedReason: access.blocked_reason,
-      isAdmin: identity.email === ADMIN_EMAIL,
+      isAdmin: adminRole !== null,
     });
   } catch {
     res.status(503).json({ error: "Access request could not be created or loaded" });
+  }
+});
+
+router.get("/admin/site-access/stats", async (req: Request, res: Response): Promise<void> => {
+  if (!await requireAdmin(req, res)) return;
+  try {
+    const statuses = ["pending", "approved", "denied", "blocked"] as const;
+    const [totalResult, ...statusResults] = await Promise.all([
+      getSupabaseAdmin().from("site_access").select("user_id", { count: "exact", head: true }),
+      ...statuses.map((status) => getSupabaseAdmin().from("site_access").select("user_id", { count: "exact", head: true }).eq("status", status)),
+    ]);
+    const failed = [totalResult, ...statusResults].find((result) => result.error);
+    if (failed?.error) throw failed.error;
+    res.json({
+      total: totalResult.count ?? 0,
+      pending: statusResults[0].count ?? 0,
+      approved: statusResults[1].count ?? 0,
+      denied: statusResults[2].count ?? 0,
+      blocked: statusResults[3].count ?? 0,
+    });
+  } catch {
+    res.status(500).json({ error: "Could not load site access statistics" });
+  }
+});
+
+router.get("/admin/site-admins", async (req: Request, res: Response): Promise<void> => {
+  if (!await requireAdmin(req, res, "super_admin")) return;
+  try {
+    const { data: admins, error } = await getSupabaseAdmin().from("site_admins")
+      .select("user_id,granted_by,granted_at")
+      .order("granted_at", { ascending: false });
+    if (error) throw error;
+    const userIds = (admins ?? []).map((admin) => admin.user_id);
+    const { data: profiles, error: profilesError } = userIds.length
+      ? await getSupabaseAdmin().from("site_access").select("user_id,email,display_name,avatar_url").in("user_id", userIds)
+      : { data: [], error: null };
+    if (profilesError) throw profilesError;
+    const profileById = new Map((profiles ?? []).map((profile) => [profile.user_id, profile]));
+    res.json({ admins: (admins ?? []).map((admin) => {
+      const profile = profileById.get(admin.user_id);
+      return {
+        userId: admin.user_id,
+        email: profile?.email ?? "",
+        displayName: profile?.display_name ?? "",
+        avatarUrl: profile?.avatar_url ?? null,
+        grantedAt: admin.granted_at,
+        grantedBy: admin.granted_by,
+      };
+    }) });
+  } catch {
+    res.status(500).json({ error: "Could not load admin accounts" });
+  }
+});
+
+router.put("/admin/site-admins", async (req: Request, res: Response): Promise<void> => {
+  const identity = await requireAdmin(req, res, "super_admin");
+  if (!identity) return;
+  const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
+  const enabled = req.body?.enabled;
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || typeof enabled !== "boolean") {
+    res.status(400).json({ error: "Provide a valid email and enabled boolean" });
+    return;
+  }
+  if (email === ADMIN_EMAIL) {
+    res.status(400).json({ error: "The superadmin role cannot be changed" });
+    return;
+  }
+  try {
+    const admin = getSupabaseAdmin();
+    const { data: target, error: targetError } = await admin.from("site_access")
+      .select("user_id,email")
+      .eq("email", email)
+      .maybeSingle();
+    if (targetError) throw targetError;
+    if (!target) {
+      res.status(404).json({ error: "No Google site account exists for that email" });
+      return;
+    }
+
+    if (enabled) {
+      const { error } = await admin.from("site_admins").upsert({
+        user_id: target.user_id,
+        role: "admin",
+        granted_by: identity.id,
+      });
+      if (error) throw error;
+    } else {
+      const { error } = await admin.from("site_admins").delete().eq("user_id", target.user_id);
+      if (error) throw error;
+    }
+
+    const { error: auditError } = await admin.from("site_admin_audit").insert({
+      actor_user_id: identity.id,
+      target_user_id: target.user_id,
+      target_email: email,
+      action: enabled ? "promote" : "remove",
+    });
+    if (auditError) throw auditError;
+    res.json({ email, admin: enabled });
+  } catch {
+    res.status(500).json({ error: "Could not update admin role" });
   }
 });
 
@@ -279,12 +394,16 @@ router.get("/admin/site-access", async (req: Request, res: Response): Promise<vo
     query = query.limit(1000);
     const { data, error } = await query;
     if (error) throw error;
+    const { data: siteAdmins, error: rolesError } = await getSupabaseAdmin().from("site_admins").select("user_id");
+    if (rolesError) throw rolesError;
+    const adminIds = new Set((siteAdmins ?? []).map((admin) => admin.user_id));
     res.json({ users: (data ?? []).map((user) => ({
       userId: user.user_id,
       email: user.email,
       displayName: user.display_name,
       avatarUrl: user.avatar_url,
       status: user.status,
+      adminRole: user.email.toLowerCase() === ADMIN_EMAIL ? "super_admin" : adminIds.has(user.user_id) ? "admin" : null,
       requestedAt: user.requested_at,
       reviewedAt: user.reviewed_at,
       reviewedBy: user.reviewed_by,
@@ -296,6 +415,24 @@ router.get("/admin/site-access", async (req: Request, res: Response): Promise<vo
     })) });
   } catch {
     res.status(500).json({ error: "Could not load site access requests" });
+  }
+});
+
+router.get("/site-activity", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const identity = await getSiteIdentity(req);
+    if (!identity) {
+      res.status(401).json({ error: "Sign in with Google to load saved activity" });
+      return;
+    }
+    const { data, error } = await getSupabaseAdmin().from("site_user_activity")
+      .select("watch_history,study_data,favorites,updated_at")
+      .eq("user_id", identity.id)
+      .maybeSingle();
+    if (error) throw error;
+    res.json(data ?? { watch_history: {}, study_data: {}, favorites: { courses: [], quizzes: [] }, updated_at: null });
+  } catch {
+    res.status(500).json({ error: "Could not load saved study activity" });
   }
 });
 
@@ -331,7 +468,7 @@ router.post("/site-activity/sync", async (req: Request, res: Response): Promise<
 });
 
 router.get("/admin/site-access/:userId/activity", async (req: Request, res: Response): Promise<void> => {
-  if (!await requireAdmin(req, res)) return;
+  if (!await requireAdmin(req, res, "super_admin")) return;
   try {
     const { data, error } = await getSupabaseAdmin().from("site_user_activity")
       .select("watch_history,study_data,favorites,updated_at")
@@ -387,8 +524,8 @@ router.post("/admin/site-access/:userId/decision", async (req: Request, res: Res
     : requestedDuration === undefined
       ? 720
       : Number(requestedDuration);
-  if (status !== "approved" && status !== "denied") {
-    res.status(400).json({ error: "Decision must be approved or denied" });
+  if (status !== "approved" && status !== "denied" && status !== "pending") {
+    res.status(400).json({ error: "Decision must be approved, denied, or pending" });
     return;
   }
   if (status === "approved" && durationHours !== null && (!Number.isInteger(durationHours) || durationHours < 1 || durationHours > 8760)) {
@@ -416,8 +553,8 @@ router.post("/admin/site-access/:userId/decision", async (req: Request, res: Res
     const email = await sendAccessDecisionEmail({
       email: data.email,
       displayName: data.display_name,
-      decision: status,
-      reason: data.denial_reason,
+      decision: status === "pending" ? "unapproved" : status,
+      reason: status === "denied" || status === "pending" ? reason || null : null,
       approvedUntil,
     });
     res.json({ user: data, emailSent: email.sent, emailReason: email.sent ? null : email.reason });

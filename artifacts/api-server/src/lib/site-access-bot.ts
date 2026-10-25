@@ -84,6 +84,8 @@ export async function handleSiteAccessCommand(ctx: Context): Promise<void> {
       "/access pending|approved|denied|blocked|all",
       "/access approve <email> [hours|permanent]",
       "/access deny <email> [reason]",
+      "/access unapprove <email> [reason]",
+      "/access unapprove <email> [reason]",
       "/access block <email> <hours|permanent> <reason>",
       "/access unblock <email>",
     ].join("\n"));
@@ -121,6 +123,24 @@ export async function handleSiteAccessCommand(ctx: Context): Promise<void> {
     decision = "denied";
     const reason = args.slice(2).join(" ").trim() || null;
     update = { status: "denied", approved_until: null, denial_reason: reason, blocked_until: null, blocked_reason: null, reviewed_at: now, reviewed_by: `telegram:${ctx.from?.id}` };
+    emailInput = { email: user.email, displayName: user.display_name, decision, reason };
+  } else if (action === "unapprove") {
+    if (user.status !== "approved") {
+      await ctx.reply("That user is not currently approved.");
+      return;
+    }
+    decision = "unapproved";
+    const reason = args.slice(2).join(" ").trim() || null;
+    update = { status: "pending", approved_until: null, denial_reason: null, reviewed_at: now, reviewed_by: `telegram:${ctx.from?.id}` };
+    emailInput = { email: user.email, displayName: user.display_name, decision, reason };
+  } else if (action === "unapprove") {
+    if (user.status !== "approved") {
+      await ctx.reply("That user is not currently approved.");
+      return;
+    }
+    decision = "unapproved";
+    const reason = args.slice(2).join(" ").trim() || null;
+    update = { status: "pending", approved_until: null, denial_reason: null, reviewed_at: now, reviewed_by: `telegram:${ctx.from?.id}` };
     emailInput = { email: user.email, displayName: user.display_name, decision, reason };
   } else if (action === "block") {
     const hours = parseDuration(args[2]);

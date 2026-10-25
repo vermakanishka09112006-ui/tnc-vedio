@@ -269,7 +269,8 @@ router.get("/study/leaderboard", async (req: Request, res: Response): Promise<vo
   try {
     const requestedLimit = Number.parseInt(String(req.query.limit ?? "20"), 10);
     const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 100) : 20;
-    res.json(await getLeaderboard(limit));
+    const googleOnly = req.query.googleOnly === "true";
+    res.json(await getLeaderboard(limit, { googleOnly }));
   } catch (err) {
     logger.error({ err }, "Failed to fetch study leaderboard");
     res.status(500).json({ error: "Failed to fetch leaderboard" });
