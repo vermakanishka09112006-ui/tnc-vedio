@@ -9,6 +9,11 @@ const rawPort = process.env.PORT;
 const port = rawPort ? Number(rawPort) : 3000;
 
 const basePath = process.env.BASE_PATH;
+const supabaseUrl = process.env.VITE_SUPABASE_URL ?? process.env.SUPABASE_URL ?? "https://qdjadytoltyytwahourt.supabase.co";
+const supabasePublicKey = process.env.VITE_SUPABASE_ANON_KEY
+  ?? process.env.SUPABASE_ANON_KEY
+  ?? process.env.SUPABASE_PUBLISHABLE_KEY
+  ?? "";
 
 if (!basePath) {
   throw new Error(
@@ -18,6 +23,10 @@ if (!basePath) {
 
 export default defineConfig({
   base: basePath,
+  define: {
+    "import.meta.env.VITE_SUPABASE_URL": JSON.stringify(supabaseUrl),
+    "import.meta.env.VITE_SUPABASE_ANON_KEY": JSON.stringify(supabasePublicKey),
+  },
   plugins: [
     react(),
     tailwindcss(),

@@ -1,4 +1,9 @@
 const STREAK_KEY = "tnc_streak";
+const FAVORITES_KEY = "tnc_favorites";
+
+function notifyActivityUpdated() {
+  window.dispatchEvent(new Event("tnc-site-activity-updated"));
+}
 
 interface StreakData {
   currentStreak: number;
@@ -69,6 +74,7 @@ function save(data: StreakData) {
   try {
     localStorage.setItem(STREAK_KEY, JSON.stringify(data));
   } catch {}
+  notifyActivityUpdated();
 }
 
 function recalcStreak(data: StreakData): StreakData {
@@ -215,7 +221,7 @@ export function getTotalActivity(): number {
   return count;
 }
 
-const FAV_KEY = "tnc_favorites";
+const FAV_KEY = FAVORITES_KEY;
 
 interface FavData {
   courses: string[];
@@ -235,6 +241,7 @@ function saveFavs(data: FavData) {
   try {
     localStorage.setItem(FAV_KEY, JSON.stringify(data));
   } catch {}
+  notifyActivityUpdated();
 }
 
 export function toggleFavorite(type: "courses" | "quizzes", id: string): boolean {

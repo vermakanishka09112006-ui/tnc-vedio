@@ -9,6 +9,7 @@ interface LeaderboardRow {
   telegramId: string;
   firstName: string;
   username: string | null;
+  avatarUrl?: string | null;
   seconds: number;
   sessions: number;
 }
@@ -117,6 +118,7 @@ export default function LeaderboardPage() {
                 }`}>
                   {index < 3 ? <Medal size={17} /> : index + 1}
                 </div>
+                {row.avatarUrl && <img src={row.avatarUrl} alt="" referrerPolicy="no-referrer" className="h-10 w-10 shrink-0 rounded-full object-cover" loading="lazy" />}
                 <div className="flex-1 min-w-0">
                   <p className={`font-semibold truncate ${isFeaturedVisitor ? "text-amber-700" : "text-gray-900"}`}>{row.firstName || "Student"}</p>
                   {row.username && <p className="text-xs text-gray-400">@{row.username}</p>}

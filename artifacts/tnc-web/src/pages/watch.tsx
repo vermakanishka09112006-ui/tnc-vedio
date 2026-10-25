@@ -6,6 +6,7 @@ import Layout from "@/components/Layout";
 import { getUser } from "@/lib/auth";
 import { isVideoCompleted, markVideoWatched, toggleVideoCompleted } from "@/lib/streak";
 import { getTelegramUser } from "@/lib/telegram";
+import { useSiteAuth } from "@/components/SiteAuthProvider";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
 
@@ -511,7 +512,7 @@ function CoursePlaylist({ courseId, currentSessionId }: { courseId: string; curr
 export default function WatchPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const user = getUser();
-  const [visitorName, setVisitorName] = useState(() => localStorage.getItem("tnc_visitor_name") ?? "");
+  const { session: googleSession } = useSiteAuth();
   const [isCompleted, setIsCompleted] = useState(() => Boolean(sessionId && isVideoCompleted(sessionId)));
 
   const { data: session, isLoading } = useGetSession(sessionId ?? "");
@@ -536,18 +537,13 @@ export default function WatchPage() {
   }, [sessionId]);
 
   useEffect(() => {
-    const handleVisitorNameUpdated = (event: Event) => {
-      const name = (event as CustomEvent<string>).detail;
-      if (typeof name === "string") setVisitorName(name);
-    };
-    window.addEventListener("tnc-visitor-name-updated", handleVisitorNameUpdated);
-    return () => window.removeEventListener("tnc-visitor-name-updated", handleVisitorNameUpdated);
-  }, []);
-
-  useEffect(() => {
     const telegramUser = getTelegramUser();
-    const visitorId = localStorage.getItem("tnc_visitor_id");
-    const resolvedVisitorName = user?.name || visitorName;
+    const metadata = googleSession?.user.user_metadata ?? {};
+    const profileName = [metadata.full_name, metadata.name, metadata.given_name].find((value) => typeof value === "string" && value.trim());
+    const resolvedVisitorName = typeof profileName === "string"
+      ? profileName
+      : user?.name || googleSession?.user.email?.split("@")[0] || "Student";
+    const visitorId = googleSession ? `google_${googleSession.user.id}` : localStorage.getItem("tnc_visitor_id");
     if ((!telegramUser && (!visitorId || !resolvedVisitorName)) || !isUnlocked || !sessionId) return;
     let lastSent = Date.now();
     const timer = window.setInterval(() => {
@@ -556,7 +552,10 @@ export default function WatchPage() {
       if (document.visibilityState !== "visible") return;
       fetch(`${BASE}/api/bot/study/heartbeat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(googleSession ? { Authorization: `Bearer ${googleSession.access_token}` } : {}),
+        },
         body: JSON.stringify({
           ...(telegramUser ? { telegramId: telegramUser.id } : { visitorId, visitorName: resolvedVisitorName }),
           sessionId,
@@ -565,7 +564,7 @@ export default function WatchPage() {
       }).catch(() => {});
     }, 30_000);
     return () => window.clearInterval(timer);
-  }, [isUnlocked, sessionId, user?.name, visitorName]);
+  }, [googleSession, isUnlocked, sessionId, user?.name]);
 
   useEffect(() => {
     if (!session || !isUnlocked || !sessionId) return;

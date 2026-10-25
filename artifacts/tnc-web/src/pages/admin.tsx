@@ -1,19 +1,17 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useAdminLogin, useGetAdminStats, useTogglePromo, useGetPromoStatus, getGetPromoStatusQueryKey, customFetch } from "@/lib/api-client";
+import { useGetAdminStats, useTogglePromo, useGetPromoStatus, getGetPromoStatusQueryKey, customFetch } from "@/lib/api-client";
 import { Shield, Users, BookOpen, Video, ShoppingCart, LogOut, ToggleLeft, ToggleRight, RefreshCw, Calendar, Plus, Minus, Clock, Search, ChevronLeft, ChevronRight, Snowflake } from "lucide-react";
-import { getAdminToken, setAdminToken, clearAdminToken } from "@/lib/auth";
+import { getAdminToken, clearAdminToken } from "@/lib/auth";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
 import { Link } from "wouter";
 import { useWinterEffects } from "@/components/WinterEffectsProvider";
+import { useSiteAuth } from "@/components/SiteAuthProvider";
+import SiteAdminPage from "@/pages/site-admin";
+import { signInWithGoogle } from "@/lib/supabase";
+import GoogleMark from "@/components/GoogleMark";
 
 const QUICK_DAYS = [7, 14, 30, 60, 90];
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
@@ -290,30 +288,17 @@ function MobileAppAnalytics() {
   );
 }
 
-function AdminLogin({ onLogin }: { onLogin: () => void }) {
-  const adminLogin = useAdminLogin();
+function AdminLogin() {
   const { toast } = useToast();
 
-  const schema = z.object({ password: z.string().min(1, "Password required") });
-  const form = useForm<{ password: string }>({
-    resolver: zodResolver(schema),
-    defaultValues: { password: "" },
-  });
-
-  function onSubmit(values: { password: string }) {
-    adminLogin.mutate(
-      { data: { password: values.password } },
-      {
-        onSuccess: (res) => {
-          setAdminToken((res as { token: string }).token);
-          onLogin();
-          toast({ title: "Admin logged in", description: "Welcome to the admin panel" });
-        },
-        onError: () => {
-          toast({ title: "Access denied", description: "Invalid admin password", variant: "destructive" });
-        },
-      }
-    );
+  async function loginWithGoogle() {
+    const callback = new URL(`${BASE}/auth/callback`, window.location.origin);
+    callback.searchParams.set("next", "/admin");
+    try {
+      await signInWithGoogle(callback.toString());
+    } catch {
+      toast({ title: "Google sign-in unavailable", description: "Check the Supabase URL, anon key, and Google provider settings.", variant: "destructive" });
+    }
   }
 
   return (
@@ -328,26 +313,9 @@ function AdminLogin({ onLogin }: { onLogin: () => void }) {
         </div>
 
         <div className="bg-white rounded-2xl shadow-2xl p-6">
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <FormField
-                control={form.control}
-                name="password"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Admin Password</FormLabel>
-                    <FormControl>
-                      <Input {...field} type="password" placeholder="Enter admin password" data-testid="input-admin-password" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <Button type="submit" className="w-full tnc-brand-gradient text-white font-semibold" disabled={adminLogin.isPending} data-testid="btn-admin-login">
-                {adminLogin.isPending ? "Verifying..." : "Login"}
-              </Button>
-            </form>
-          </Form>
+          <button type="button" onClick={() => void loginWithGoogle()} className="mb-4 box-border inline-flex min-h-12 w-full appearance-none items-center justify-center gap-3 rounded-md border border-[#747775] bg-white px-4 py-3 text-sm font-semibold leading-5 text-[#1f1f1f] shadow-sm hover:bg-[#f8faff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">
+            <GoogleMark />Sign in with Google admin account
+          </button>
           <div className="mt-4 text-center">
             <Link href="/" className="text-sm text-gray-400 hover:text-gray-600">Back to site</Link>
           </div>
@@ -592,7 +560,11 @@ function AdminDashboard() {
 }
 
 export default function AdminPage() {
-  const [authed, setAuthed] = useState(!!getAdminToken());
-  if (!authed) return <AdminLogin onLogin={() => setAuthed(true)} />;
-  return <AdminDashboard />;
+  const { session, access, loading, signOut } = useSiteAuth();
+  if (loading && session) return <div className="min-h-screen bg-slate-50 p-12 text-center text-sm text-slate-500">Checking admin access...</div>;
+  if (session) {
+    if (access?.isAdmin) return <SiteAdminPage />;
+    return <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-slate-950 px-4 text-center text-white"><h1 className="text-2xl font-black">Admin access required</h1><p className="text-sm text-white/70">Sign in with shashanksv2009@gmail.com to manage site access.</p><button onClick={() => void signOut()} className="mt-2 border border-white/30 px-4 py-2 text-sm font-semibold hover:bg-white/10">Sign out</button></div>;
+  }
+  return <AdminLogin />;
 }

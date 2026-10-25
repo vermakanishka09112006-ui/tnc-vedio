@@ -10,6 +10,7 @@ import {
   getStats,
 } from "../lib/user-store";
 import { recordStudyHeartbeat, recordWebsiteStudyHeartbeat, getLeaderboard } from "../lib/study-store";
+import { getSiteIdentity } from "./site-access";
 
 const router = Router();
 const processedWebhookUpdates = new Map<number, number>();
@@ -237,8 +238,25 @@ router.post("/study/heartbeat", async (req: Request, res: Response): Promise<voi
     }
     if (telegramId) {
       await recordStudyHeartbeat({ telegramId, sessionId, seconds: seconds! });
+    } else if (req.header("authorization")?.match(/^Bearer\s+.+$/i)) {
+      const identity = await getSiteIdentity(req);
+      if (!identity) {
+        res.status(401).json({ error: "Sign in with Google to record website study time" });
+        return;
+      }
+      await recordWebsiteStudyHeartbeat({
+        visitorId: `google_${identity.id}`,
+        visitorName: identity.name || identity.email.split("@")[0],
+        avatarUrl: identity.avatarUrl,
+        sessionId,
+        seconds: seconds!,
+      });
     } else {
-      await recordWebsiteStudyHeartbeat({ visitorId: visitorId!, visitorName: visitorName!, sessionId, seconds: seconds! });
+      if (visitorId!.startsWith("google_")) {
+        res.status(401).json({ error: "Google study records require an authenticated account" });
+        return;
+      }
+      await recordWebsiteStudyHeartbeat({ visitorId: visitorId!, visitorName: visitorName!, avatarUrl: null, sessionId, seconds: seconds! });
     }
     res.json({ success: true });
   } catch (err) {

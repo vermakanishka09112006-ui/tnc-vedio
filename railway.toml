@@ -7,6 +7,9 @@
 # Required env vars (set in Railway dashboard → Variables):
 #   SUPABASE_URL        Supabase project URL
 #   SUPABASE_SERVICE_ROLE_KEY  Supabase server-only service-role key
+#   SUPABASE_ANON_KEY   Supabase public anon key (safe to expose to browsers)
+#   RESEND_API_KEY      Resend API key for access decision notifications
+#   ACCESS_EMAIL_FROM   Verified Resend sender, e.g. TNC Nursing <access@your-domain>
 #   ADMIN_PASSWORD      Admin panel password
 #   ADMIN_TOKEN         Admin panel token
 #   SESSION_SECRET      Express session secret

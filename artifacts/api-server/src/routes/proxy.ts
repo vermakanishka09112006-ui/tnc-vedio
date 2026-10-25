@@ -5,6 +5,7 @@ import { authenticateAppUser, createAppUser, findAppUser, listAppUsers } from ".
 import { getStats as getBotStats } from "../lib/user-store";
 import { invalidateAdminDirectoryCache, listAdminDirectoryUsers } from "../lib/admin-directory";
 import { TncApiError, TncLoginRequiredError, getSharedTncSessionStatus, loginSharedTncStudent, resetTncDeviceAndLogin, tncProtectedRequest, tncPublicRequest } from "../lib/tnc-session";
+import { requireApprovedSiteUser } from "./site-access";
 
 const router = Router();
 
@@ -527,7 +528,7 @@ router.get("/courses", async (_req: Request, res: Response): Promise<void> => {
 });
 
 // GET /api/subjects — named subjects for a course
-router.get("/subjects", async (req: Request, res: Response): Promise<void> => {
+router.get("/subjects", requireApprovedSiteUser, async (req: Request, res: Response): Promise<void> => {
   try {
     const { courseId } = req.query;
     const { subjectData, contentData } = await loadCourseContent(String(courseId ?? ""));
@@ -594,7 +595,7 @@ router.get("/subjects", async (req: Request, res: Response): Promise<void> => {
 });
 
 // GET /api/pdf?path=... — proxy PDFs from CRM (uploads/ paths)
-router.get("/pdf", async (req: Request, res: Response): Promise<void> => {
+router.get("/pdf", requireApprovedSiteUser, async (req: Request, res: Response): Promise<void> => {
   try {
     const { path: pdfPath, url: pdfUrl } = req.query;
     if (!pdfPath && !pdfUrl) {
@@ -639,7 +640,7 @@ router.get("/pdf", async (req: Request, res: Response): Promise<void> => {
 });
 
 // GET /api/media-proxy?url=... — generic media proxy for Firebase Storage / CORS-blocked URLs
-router.get("/media-proxy", async (req: Request, res: Response): Promise<void> => {
+router.get("/media-proxy", requireApprovedSiteUser, async (req: Request, res: Response): Promise<void> => {
   try {
     const { url } = req.query;
     if (!url || typeof url !== "string") {
@@ -691,7 +692,7 @@ router.get("/media-proxy", async (req: Request, res: Response): Promise<void> =>
 });
 
 // GET /api/notes — PDF-only sessions per course (or newest 60 across all courses)
-router.get("/notes", async (req: Request, res: Response): Promise<void> => {
+router.get("/notes", requireApprovedSiteUser, async (req: Request, res: Response): Promise<void> => {
   try {
     const { courseId, limit: limitParam } = req.query;
     const data = typeof courseId === "string"
@@ -727,7 +728,7 @@ router.get("/notes", async (req: Request, res: Response): Promise<void> => {
 });
 
 // GET /api/sessions — queries t_ch (real video sessions) with pagination + sort
-router.get("/sessions", async (req: Request, res: Response): Promise<void> => {
+router.get("/sessions", requireApprovedSiteUser, async (req: Request, res: Response): Promise<void> => {
   try {
     const { courseId, subjectId, limit: limitParam, type, sort, page: pageParam, search } = req.query;
     const data = typeof courseId === "string"
@@ -799,7 +800,7 @@ router.get("/sessions", async (req: Request, res: Response): Promise<void> => {
 });
 
 // GET /api/sessions/:rowId — fetch a single session by rowId
-router.get("/sessions/:rowId", async (req: Request, res: Response): Promise<void> => {
+router.get("/sessions/:rowId", requireApprovedSiteUser, async (req: Request, res: Response): Promise<void> => {
   try {
     const { rowId } = req.params;
     const data = await tncProtectedRequest("fe", { json: "*" }, { sch: "t_ch", cond: { "(row_id)": [rowId] } });
@@ -816,7 +817,7 @@ router.get("/sessions/:rowId", async (req: Request, res: Response): Promise<void
 });
 
 // GET /api/search?q=... — global search across courses, sessions, quizzes
-router.get("/search", async (req: Request, res: Response): Promise<void> => {
+router.get("/search", requireApprovedSiteUser, async (req: Request, res: Response): Promise<void> => {
   try {
     const q = ((req.query.q as string) ?? "").trim().toLowerCase();
     if (!q || q.length < 2) {
@@ -1155,7 +1156,7 @@ router.post("/promo/extend", (req: Request, res: Response): void => {
 });
 
 // GET /api/quizzes — list exam sets from t_ex, newest first
-router.get("/quizzes", async (req: Request, res: Response): Promise<void> => {
+router.get("/quizzes", requireApprovedSiteUser, async (req: Request, res: Response): Promise<void> => {
   try {
     const page = parseInt(req.query.page as string) || 1;
     const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
@@ -1197,7 +1198,7 @@ router.get("/quizzes", async (req: Request, res: Response): Promise<void> => {
 });
 
 // GET /api/quiz/:examId — fetch exam with ALL questions (actual count, no hardcode)
-router.get("/quiz/:examId", async (req: Request, res: Response): Promise<void> => {
+router.get("/quiz/:examId", requireApprovedSiteUser, async (req: Request, res: Response): Promise<void> => {
   try {
     const { examId } = req.params;
 
@@ -1251,7 +1252,7 @@ router.get("/quiz/:examId", async (req: Request, res: Response): Promise<void> =
 
 // GET /api/firebase-stream/:fsId — proxy-stream a Firebase secured video to the browser
 // Works with user email/password auth OR service account (no service account needed if email/pass set)
-router.get("/firebase-stream/:fsId", async (req: Request, res: Response): Promise<void> => {
+router.get("/firebase-stream/:fsId", requireApprovedSiteUser, async (req: Request, res: Response): Promise<void> => {
   const fsId = String(req.params.fsId);
 
   if (!isFirebaseConfigured()) {
@@ -1286,7 +1287,7 @@ router.get("/firebase-stream/:fsId", async (req: Request, res: Response): Promis
 });
 
 // GET /api/firebase-video/:fsId — get a direct download URL (service account only)
-router.get("/firebase-video/:fsId", async (req: Request, res: Response): Promise<void> => {
+router.get("/firebase-video/:fsId", requireApprovedSiteUser, async (req: Request, res: Response): Promise<void> => {
   const fsId = String(req.params.fsId);
   if (!isServiceAccountConfigured()) {
     res.status(503).json({ error: "Requires FIREBASE_SERVICE_ACCOUNT. Use /api/firebase-stream/:fsId for email/password auth." });

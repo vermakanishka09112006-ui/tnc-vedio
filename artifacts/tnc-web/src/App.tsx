@@ -25,6 +25,20 @@ import WinterEffectsProvider, { useWinterEffects } from "@/components/WinterEffe
 import WinterSnowfall from "@/components/WinterSnowfall";
 import { ApiError } from "@/lib/api-client/custom-fetch";
 import { initializeVisitorIdentity } from "@/lib/visitor-identity";
+import SiteLoginPage from "@/pages/site-login";
+import OAuthCallbackPage from "@/pages/oauth-callback";
+import OAuthConsentPage from "@/pages/oauth-consent";
+import { SiteAuthProvider } from "@/components/SiteAuthProvider";
+import ProtectedSitePage from "@/components/ProtectedSitePage";
+import { setAuthTokenGetter } from "@/lib/api-client/custom-fetch";
+import { getSupabaseClient } from "@/lib/supabase";
+
+setAuthTokenGetter(async () => {
+  const client = await getSupabaseClient();
+  if (!client) return null;
+  const { data } = await client.auth.getSession();
+  return data.session?.access_token ?? null;
+});
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -94,18 +108,21 @@ function Router() {
     <Switch>
       <Route path="/" component={HomePage} />
       <Route path="/courses" component={CoursesPage} />
-      <Route path="/courses/:courseId/subjects/:subjectId" component={SubjectDetailPage} />
-      <Route path="/courses/:courseId" component={CourseDetailPage} />
-      <Route path="/videos" component={VideosPage} />
-      <Route path="/watched" component={WatchedPage} />
-      <Route path="/enotes" component={EnotesPage} />
-      <Route path="/leaderboard" component={LeaderboardPage} />
-      <Route path="/quiz" component={RedirectToTests} />
-      <Route path="/quiz/:examId" component={RedirectToTests} />
-      <Route path="/buy" component={BuyPage} />
+      <Route path="/login" component={SiteLoginPage} />
+      <Route path="/auth/callback" component={OAuthCallbackPage} />
+      <Route path="/oauth/consent" component={OAuthConsentPage} />
+      <Route path="/courses/:courseId/subjects/:subjectId"><ProtectedSitePage><SubjectDetailPage /></ProtectedSitePage></Route>
+      <Route path="/courses/:courseId"><ProtectedSitePage><CourseDetailPage /></ProtectedSitePage></Route>
+      <Route path="/videos"><ProtectedSitePage><VideosPage /></ProtectedSitePage></Route>
+      <Route path="/watched"><ProtectedSitePage><WatchedPage /></ProtectedSitePage></Route>
+      <Route path="/enotes"><ProtectedSitePage><EnotesPage /></ProtectedSitePage></Route>
+      <Route path="/leaderboard"><ProtectedSitePage><LeaderboardPage /></ProtectedSitePage></Route>
+      <Route path="/quiz"><ProtectedSitePage><RedirectToTests /></ProtectedSitePage></Route>
+      <Route path="/quiz/:examId"><ProtectedSitePage><RedirectToTests /></ProtectedSitePage></Route>
+      <Route path="/buy"><ProtectedSitePage><BuyPage /></ProtectedSitePage></Route>
       <Route path="/admin" component={AdminPage} />
-      <Route path="/watch/:sessionId" component={WatchPage} />
-      <Route path="/pdf/:sessionId" component={PdfViewerPage} />
+      <Route path="/watch/:sessionId"><ProtectedSitePage><WatchPage /></ProtectedSitePage></Route>
+      <Route path="/pdf/:sessionId"><ProtectedSitePage><PdfViewerPage /></ProtectedSitePage></Route>
       <Route component={NotFound} />
     </Switch>
   );
@@ -189,7 +206,7 @@ function App() {
       <TooltipProvider>
         <WinterEffectsProvider>
           <SecurityGuard />
-          <WinterSiteRouter />
+          <SiteAuthProvider><WinterSiteRouter /></SiteAuthProvider>
           <Toaster />
         </WinterEffectsProvider>
       </TooltipProvider>

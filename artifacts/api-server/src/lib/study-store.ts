@@ -10,6 +10,7 @@ export interface StudySessionSummary {
   telegramId: string;
   firstName: string;
   username: string | null;
+  avatarUrl: string | null;
   seconds: number;
   sessions: number;
 }
@@ -17,6 +18,7 @@ export interface StudySessionSummary {
 export interface WebsiteStudyHeartbeat {
   visitorId: string;
   visitorName: string;
+  avatarUrl: string | null;
   sessionId: string;
   seconds: number;
 }
@@ -47,6 +49,7 @@ export async function recordWebsiteStudyHeartbeat(input: WebsiteStudyHeartbeat):
     body: JSON.stringify({
       p_visitor_id: visitorId,
       p_visitor_name: visitorName,
+      p_avatar_url: input.avatarUrl,
       p_session_id: input.sessionId,
       p_seconds: seconds,
     }),
@@ -60,6 +63,7 @@ export async function getLeaderboard(limit = 20): Promise<StudySessionSummary[]>
       participant_id: number | string;
       first_name: string;
       username: string | null;
+      avatar_url: string | null;
       seconds: number;
       sessions: number;
     }>>(`study_leaderboard?select=participant_id,first_name,username,seconds,sessions&order=seconds.desc&limit=${maxRows}`);
@@ -67,6 +71,7 @@ export async function getLeaderboard(limit = 20): Promise<StudySessionSummary[]>
       telegramId: String(row.participant_id),
       firstName: row.first_name,
       username: row.username,
+      avatarUrl: row.avatar_url,
       seconds: Number(row.seconds),
       sessions: Number(row.sessions),
     }));
@@ -89,6 +94,7 @@ export async function getLeaderboard(limit = 20): Promise<StudySessionSummary[]>
       telegramId: `telegram_${row.telegram_id}`,
       firstName: row.first_name,
       username: row.username,
+      avatarUrl: null,
       seconds: Number(row.seconds),
       sessions: sessionCounts.get(String(row.telegram_id)) ?? 0,
     }));
