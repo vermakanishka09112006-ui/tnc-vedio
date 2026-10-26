@@ -426,7 +426,7 @@ export default function Layout({ children }: LayoutProps) {
         <VisitorGreeting />
         {children}
       </main>
-      <TncLoginPrompt enabled={location.startsWith("/courses/")} />
+      <TncLoginPrompt enabled={location === "/courses" || location.startsWith("/courses/")} />
 
       {showChannelPrompt && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/65 px-4 py-6" role="dialog" aria-modal="true" aria-labelledby="channel-join-title" data-testid="channel-join-modal">

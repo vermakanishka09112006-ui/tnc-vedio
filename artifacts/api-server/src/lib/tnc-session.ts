@@ -47,7 +47,7 @@ function tokenExpiry(token: string): string | null {
 }
 
 export async function getSharedTncSession(): Promise<SharedTncSession | null> {
-  return (await getSharedTncSessionStatus()).session;
+  return (await readSharedSessionStatus()).session;
 }
 
 export async function getSharedTncSessionStatus(): Promise<{
@@ -93,7 +93,7 @@ async function readSharedSessionStatus(): Promise<SharedSessionStatus> {
 
 export async function saveSharedTncSession(token: string): Promise<void> {
   const expiresAt = tokenExpiry(token);
-  await supabaseRequest<SharedTncSession[]>("tnc_shared_session?on_conflict=id", {
+  const savedRows = await supabaseRequest<SharedTncSession[]>("tnc_shared_session?on_conflict=id", {
     method: "POST",
     headers: { Prefer: "resolution=merge-duplicates,return=representation" },
     body: JSON.stringify({
@@ -103,6 +103,9 @@ export async function saveSharedTncSession(token: string): Promise<void> {
       updated_at: new Date().toISOString(),
     }),
   });
+  if (!savedRows.some((row) => row.id === SHARED_SESSION_ID && row.token === token)) {
+    throw new Error("Supabase did not confirm that the TNC session token was saved");
+  }
   sessionCache = {
     status: {
       session: { id: SHARED_SESSION_ID, token, expires_at: expiresAt },
