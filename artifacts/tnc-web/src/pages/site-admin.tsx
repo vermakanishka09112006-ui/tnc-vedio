@@ -10,6 +10,7 @@ type AdminAccessUser = SiteAccessStatus & {
 };
 
 const FILTERS = ["pending", "approved", "denied", "blocked", "all"] as const;
+const SUPER_ADMIN_EMAIL = "shashanksv2009@gmail.com";
 type Filter = (typeof FILTERS)[number];
 
 interface SiteAccessStats {
@@ -109,6 +110,7 @@ function UserDetailsPanel({ user }: { user: AdminAccessUser }) {
 
 export default function SiteAdminPage() {
   const { access, signOut } = useSiteAuth();
+  const canManageSiteAdmins = access?.adminRole === "super_admin" || access?.email.trim().toLowerCase() === SUPER_ADMIN_EMAIL;
   const [filter, setFilter] = useState<Filter>("pending");
   const [users, setUsers] = useState<AdminAccessUser[]>([]);
   const [stats, setStats] = useState<SiteAccessStats | null>(null);
@@ -153,7 +155,7 @@ export default function SiteAdminPage() {
   useEffect(() => { void refresh(); }, [filter]);
 
   async function refreshSiteAdmins() {
-    if (access?.adminRole !== "super_admin") return;
+    if (!canManageSiteAdmins) return;
     try {
       const response = await customFetch<{ admins: SiteAdminAccount[] }>("/api/admin/site-admins");
       setSiteAdmins(response.admins);
@@ -162,7 +164,7 @@ export default function SiteAdminPage() {
     }
   }
 
-  useEffect(() => { void refreshSiteAdmins(); }, [access?.adminRole]);
+  useEffect(() => { void refreshSiteAdmins(); }, [canManageSiteAdmins]);
 
   const normalizedSearch = search.trim().toLowerCase();
   const visibleUsers = users.filter((user) => `${user.displayName} ${user.email}`.toLowerCase().includes(normalizedSearch));
@@ -280,7 +282,7 @@ export default function SiteAdminPage() {
             </div>
           ))}
         </section>
-        {access.adminRole === "super_admin" && <section className="mt-6 border border-blue-200 bg-white p-4 sm:p-5" aria-label="Admin role management">
+        {canManageSiteAdmins && <section className="mt-6 border border-blue-200 bg-white p-4 sm:p-5" aria-label="Admin role management">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div><p className="text-xs font-bold uppercase tracking-[0.14em] text-blue-800">Superadmin controls</p><h3 className="mt-1 text-lg font-black">Admin roles</h3><p className="mt-1 text-xs text-slate-500">Only the superadmin can grant or remove admin privileges.</p></div>
             <form onSubmit={(event) => { event.preventDefault(); void setUserAdmin(adminEmail.trim(), true); }} className="flex w-full max-w-lg gap-2">

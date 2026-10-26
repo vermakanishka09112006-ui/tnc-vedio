@@ -9,7 +9,6 @@ interface LeaderboardRow {
   telegramId: string;
   firstName: string;
   username: string | null;
-  avatarUrl?: string | null;
   adminRole?: "admin" | "super_admin" | null;
   seconds: number;
   sessions: number;
@@ -121,8 +120,8 @@ export default function LeaderboardPage() {
                 }`}>
                   {index < 3 ? <Medal size={17} /> : index + 1}
                 </div>
-                <div className={`flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white ${isSuperAdmin ? "ring-2 ring-amber-500 ring-offset-2" : isAdmin ? "ring-2 ring-blue-500 ring-offset-2" : "border border-gray-200"}`}>
-                  {row.avatarUrl ? <img src={row.avatarUrl} alt="" referrerPolicy="no-referrer" className="h-full w-full object-cover" loading="lazy" /> : <span className="font-bold text-gray-500">{row.firstName.slice(0, 1).toUpperCase() || "S"}</span>}
+                <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white font-bold text-gray-500 ${isSuperAdmin ? "ring-2 ring-amber-500 ring-offset-2" : isAdmin ? "ring-2 ring-blue-500 ring-offset-2" : "border border-gray-200"}`}>
+                  {row.firstName.slice(0, 1).toUpperCase() || "S"}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
