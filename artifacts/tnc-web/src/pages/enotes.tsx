@@ -22,6 +22,7 @@ interface NoteSession {
   rowId: string;
   title: string;
   pdfUrl: string | null;
+  pdfUrls?: string[];
   isPaid: boolean;
   serialNo: string;
   courseId: string | null;
@@ -217,13 +218,26 @@ function NoteItem({
         )}
       </div>
       {canAccess ? (
-        <Link
-          href={`/pdf/${note.rowId}`}
-          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-600 text-white text-[11px] font-semibold hover:bg-red-700 transition-colors whitespace-nowrap"
-          data-testid={`btn-view-note-${note.rowId}`}
-        >
-          View PDF <ChevronRight size={11} />
-        </Link>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Link
+            href={`/pdf/${note.rowId}`}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-600 text-white text-[11px] font-semibold hover:bg-red-700 transition-colors whitespace-nowrap"
+            data-testid={`btn-view-note-${note.rowId}`}
+          >
+            View PDF <ChevronRight size={11} />
+          </Link>
+          {(note.pdfUrls ?? []).slice(1).map((url, index) => (
+            <a
+              key={`${note.rowId}-attachment-${index}`}
+              href={url}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-lg border border-red-200 px-2.5 py-1 text-[11px] font-semibold text-red-700 hover:bg-red-50 whitespace-nowrap"
+            >
+              PDF {index + 2}
+            </a>
+          ))}
+        </div>
       ) : (
         <Link
           href="/buy"

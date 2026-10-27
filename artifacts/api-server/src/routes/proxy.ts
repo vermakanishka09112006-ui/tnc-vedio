@@ -90,45 +90,45 @@ function recordJson(value: unknown): Record<string, unknown> {
 
 function loadPdfCandidates(json: Record<string, unknown>): string[] {
   const roots = [
-    recordJson(json._de)._no,
-    json._no,
-    json._no_ur,
-    json.notes,
-    json._pd,
-    json._pd_ur,
-    json.pdf,
-    json.pdf_url,
-    json._pdf_url,
-    json._no_url,
-    json.note_url,
-    json.document_url,
-    json.file_url,
-    json._no_path,
-    json._no_file,
-    json._no_src,
-    json._at,
-    json.attachment,
+    { value: recordJson(json._de)._no, pdfField: true },
+    { value: json._no, pdfField: true },
+    { value: json._no_ur, pdfField: true },
+    { value: json.notes, pdfField: true },
+    { value: json._pd, pdfField: true },
+    { value: json._pd_ur, pdfField: true },
+    { value: json.pdf, pdfField: true },
+    { value: json.pdf_url, pdfField: true },
+    { value: json._pdf_url, pdfField: true },
+    { value: json._no_url, pdfField: true },
+    { value: json.note_url, pdfField: true },
+    { value: json.document_url, pdfField: true },
+    { value: json.file_url, pdfField: true },
+    { value: json._no_path, pdfField: true },
+    { value: json._no_file, pdfField: true },
+    { value: json._no_src, pdfField: true },
+    { value: json._at, pdfField: false },
+    { value: json.attachment, pdfField: false },
   ];
   const candidates: string[] = [];
-  const visit = (value: unknown): void => {
+  const visit = (value: unknown, pdfField: boolean): void => {
     const unwrapped = unwrapJson(value);
     if (Array.isArray(unwrapped)) {
-      for (const item of unwrapped) visit(item);
+      for (const item of unwrapped) visit(item, pdfField);
       return;
     }
     if (unwrapped && typeof unwrapped === "object") {
       for (const [key, item] of Object.entries(unwrapped)) {
-        if (/^(url|uri|path|file|src|href|link|pdf_url|file_url|document_url|note_url|_url|_no_url)$/i.test(key)) visit(item);
+        if (/^(url|uri|path|file|src|href|link|pdf_url|file_url|document_url|note_url|_url|_no_url)$/i.test(key)) visit(item, pdfField);
       }
       return;
     }
     if (typeof unwrapped !== "string") return;
     for (const part of unwrapped.split(",")) {
       const candidate = part.trim().replace(/\\\//g, "/");
-      if (isPdfCandidate(candidate)) candidates.push(candidate);
+      if (isPdfCandidate(candidate, pdfField)) candidates.push(candidate);
     }
   };
-  for (const root of roots) visit(root);
+  for (const root of roots) visit(root.value, root.pdfField);
   return [...new Set(candidates)];
 }
 
@@ -170,7 +170,16 @@ async function loadCourseContent(courseId: string): Promise<{
   const linkedSubjectIds = Array.isArray(subjectData)
     ? [...new Set((subjectData as Record<string, unknown>[]).map((row) => String(row.row_id ?? "").trim()).filter(Boolean))]
     : [];
-  const queries: Promise<unknown>[] = [];
+  const queries: Promise<unknown>[] = [
+    tncProtectedRequest("fe", { json: "*" }, {
+      sch: "t_ch", cond: { co_refid: courseRefId },
+    }),
+  ];
+  if (courseRefId !== courseId) {
+    queries.push(tncProtectedRequest("fe", { json: "*" }, {
+      sch: "t_ch", cond: { co_refid: courseId },
+    }));
+  }
   if (chapterIds.length) {
     queries.push(tncProtectedRequest("fe", { json: "*" }, {
       sch: "t_ch", cond: { "(row_id)": chapterIds }, limit: 1000,
@@ -249,7 +258,7 @@ function isYouTubeUrl(url: unknown): boolean {
   return url.includes("youtube.com") || url.includes("youtu.be");
 }
 
-function isPdfCandidate(url: unknown): boolean {
+function isPdfCandidate(url: unknown, pdfField = false): boolean {
   if (typeof url !== "string") return false;
   const value = url.trim();
   if (!value) return false;
@@ -259,6 +268,8 @@ function isPdfCandidate(url: unknown): boolean {
   // More permissive PDF detection
   if (/\.pdf(\?|$)/i.test(value)) return true;
   if (value.includes("/pdf/") || value.includes("application/pdf")) return true;
+  if (pdfField && /^https?:\/\//i.test(value)) return true;
+  if (pdfField && /^\/?uploads\//i.test(value)) return true;
   // Also accept common document paths
   if (value.includes("/uploads/") && (value.includes(".pdf") || value.includes("document") || value.includes("note"))) return true;
   if (value.includes("drive.google.com") || value.includes("docs.google.com")) return true;
