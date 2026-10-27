@@ -172,12 +172,12 @@ async function loadCourseContent(courseId: string): Promise<{
     : [];
   const queries: Promise<unknown>[] = [
     tncProtectedRequest("fe", { json: "*" }, {
-      sch: "t_ch", cond: { co_refid: courseRefId },
+      sch: "t_ch", cond: { co_refid: courseRefId }, limit: 100_000,
     }),
   ];
   if (courseRefId !== courseId) {
     queries.push(tncProtectedRequest("fe", { json: "*" }, {
-      sch: "t_ch", cond: { co_refid: courseId },
+      sch: "t_ch", cond: { co_refid: courseId }, limit: 100_000,
     }));
   }
   if (chapterIds.length) {
